@@ -305,6 +305,20 @@ void init_constraint(Rice::Module& m) {
         return self.AddMultiplicationEquality(target, vars);
       })
     .define_method(
+      "add_automaton",
+      [](CpModelBuilder& self,
+         std::vector<LinearExpr> transition_expressions,
+         int64_t starting_state,
+         std::vector<int64_t> final_states,
+         std::vector<std::vector<int64_t>> transition_triples) {
+        for (const auto& t : transition_triples) {
+          if (t.size() != 3) {
+            throw std::runtime_error("Each transition must be an array of 3 integers: [tail, label, head]");
+          }
+        }
+        return self.AddAutomaton(transition_expressions, starting_state, final_states, transition_triples);
+      })
+    .define_method(
       "add_no_overlap",
       [](CpModelBuilder& self, std::vector<IntervalVar> vars) {
         return self.AddNoOverlap(vars);
