@@ -5,6 +5,7 @@
 #include <ortools/sat/cp_model.h>
 #include <rice/rice.hpp>
 #include <rice/stl.hpp>
+#include <ruby/thread.h>
 
 using operations_research::Domain;
 using operations_research::sat::BoolVar;
@@ -31,6 +32,27 @@ using Rice::Symbol;
 
 Class rb_cBoolVar;
 Class rb_cSatIntVar;
+
+// Helper to safely call Ruby from OR-Tools worker threads by reacquiring GVL.
+struct SolverCallbackArgs {
+  VALUE rb_callback;  // Ruby callback object (kept alive via rb_gc_register_address)
+  operations_research::sat::CpSolverResponse response;  // copied response
+};
+
+static void* call_ruby_callback(void* ptr) {
+  SolverCallbackArgs* args = static_cast<SolverCallbackArgs*>(ptr);
+  try {
+    Rice::Object cb(args->rb_callback);
+    cb.call("response=", args->response);
+    cb.call("on_solution_callback");
+  } catch (...) {
+    // Ensure we do not leak args on exceptions
+    delete args;
+    throw;
+  }
+  delete args;
+  return nullptr;
+}
 
 namespace Rice::detail {
   template<>
@@ -468,25 +490,30 @@ void init_constraint(Rice::Module& m) {
       [](Object self, CpModelBuilder& model, SatParameters& parameters, Object callback) {
         Model m;
 
+        VALUE rb_cb = Qnil;
         if (!callback.is_nil()) {
-          // use a single worker since Ruby code cannot be run in a non-Ruby thread
-          parameters.set_num_search_workers(1);
+          // Keep Ruby callback alive for the duration of the solve.
+          rb_cb = callback.value();
+          rb_gc_register_address(&rb_cb);
 
           m.Add(NewFeasibleSolutionObserver(
-            [&callback](const CpSolverResponse& r) {
-              if (!ruby_native_thread_p()) {
-                throw std::runtime_error("Non-Ruby thread");
-              }
-
-              callback.call("response=", r);
-              callback.call("on_solution_callback");
+            [rb_cb](const CpSolverResponse& r) {
+              // Schedule the Ruby callback under the GVL.
+              auto* args = new SolverCallbackArgs{rb_cb, r};
+              rb_thread_call_with_gvl(call_ruby_callback, args);
             })
           );
         }
 
         m.Add(NewSatParameters(parameters));
-        return SolveCpModel(model.Build(), &m);
-      })
+        auto response = SolveCpModel(model.Build(), &m);
+
+        if (rb_cb != Qnil) {
+          rb_gc_unregister_address(&rb_cb);
+        }
+        return response;
+      },
+      Rice::Function().setNoGvl())
     .define_method(
       "_solution_integer_value",
       [](Object self, const CpSolverResponse& response, IntVar x) {
