@@ -45,6 +45,7 @@ using Rice::Symbol;
 Class rb_cBoolVar;
 Class rb_cSatIntVar;
 
+
 // Thread-safe queue that lets OR-Tools worker threads enqueue responses while a Ruby-owned
 // thread drains the queue and invokes the Ruby callback after reacquiring the GVL.
 struct CallbackQueue {
@@ -535,7 +536,7 @@ void init_constraint(Rice::Module& m) {
           throw std::runtime_error("values must be an Array");
         }
         Array values(values_obj);
-        if (values.empty()) {
+        if (values.size() == 0) {
           throw std::runtime_error("values array must not be empty");
         }
 
