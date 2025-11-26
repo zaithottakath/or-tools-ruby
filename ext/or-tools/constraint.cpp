@@ -4,7 +4,6 @@
 #include <google/protobuf/text_format.h>
 #include <ortools/sat/cp_model.h>
 #include <rice/rice.hpp>
-#include <rice/detail/no_gvl.hpp>
 #include <rice/stl.hpp>
 #include <ruby/thread.h>
 
