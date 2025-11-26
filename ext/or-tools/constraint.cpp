@@ -46,7 +46,6 @@ Class rb_cBoolVar;
 Class rb_cSatIntVar;
 
 
-
 // Thread-safe queue that lets OR-Tools worker threads enqueue responses while a Ruby-owned
 // thread drains the queue and invokes the Ruby callback after reacquiring the GVL.
 struct CallbackQueue {
