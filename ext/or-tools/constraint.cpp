@@ -4,6 +4,7 @@
 #include <google/protobuf/text_format.h>
 #include <ortools/sat/cp_model.h>
 #include <rice/rice.hpp>
+#include <rice/detail/no_gvl.hpp>
 #include <rice/stl.hpp>
 #include <ruby/thread.h>
 
@@ -12,6 +13,7 @@ using operations_research::sat::BoolVar;
 using operations_research::sat::Constraint;
 using operations_research::sat::TableConstraint;
 using operations_research::sat::CpModelBuilder;
+using operations_research::sat::CpModelProto;
 using operations_research::sat::CpSolverResponse;
 using operations_research::sat::CpSolverStatus;
 using operations_research::sat::LinearExpr;
@@ -19,6 +21,7 @@ using operations_research::sat::IntVar;
 using operations_research::sat::IntervalVar;
 using operations_research::sat::Model;
 using operations_research::sat::NewFeasibleSolutionObserver;
+using operations_research::sat::SolveCpModel;
 using operations_research::sat::SatParameters;
 using operations_research::sat::SolutionBooleanValue;
 using operations_research::sat::SolutionIntegerValue;
@@ -51,6 +54,10 @@ static void* call_ruby_callback(void* ptr) {
   }
   delete args;
   return nullptr;
+}
+
+static CpSolverResponse solve_cp_model_without_gvl(const CpModelProto* proto, Model* model) {
+  return SolveCpModel(*proto, model);
 }
 
 namespace Rice::detail {
@@ -465,14 +472,17 @@ void init_constraint(Rice::Module& m) {
         }
 
         m.Add(NewSatParameters(parameters));
-        auto response = SolveCpModel(model.Build(), &m);
+        const CpModelProto proto = model.Build();
+        auto response = Rice::detail::no_gvl(
+          &solve_cp_model_without_gvl,
+          &proto,
+          &m);
 
         if (rb_cb != Qnil) {
           rb_gc_unregister_address(&rb_cb);
         }
         return response;
-      },
-      Rice::Function().setNoGvl())
+      })
     .define_method(
       "_solution_integer_value",
       [](Object self, const CpSolverResponse& response, IntVar x) {
