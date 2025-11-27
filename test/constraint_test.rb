@@ -369,6 +369,65 @@ class ConstraintTest < Minitest::Test
     end
   end
 
+  def test_multiple_circuit_constraint_multiple_tours
+    model = ORTools::CpModel.new
+    arcs = [
+      [0, 1], [1, 0],
+      [0, 2], [2, 0],
+      [0, 3], [3, 0],
+      [1, 2], [2, 1], [1, 3], [3, 1], [2, 3], [3, 2],
+      [4, 4]
+    ]
+    literals = arcs.map { |tail, head| model.new_bool_var("route_#{tail}_#{head}") }
+
+    routes = model.add_multiple_circuit_constraint
+    arcs.each_with_index do |(tail, head), idx|
+      routes.add_arc(tail, head, literals[idx])
+    end
+
+    # Force two short depot tours: 0->1->0 and 0->2->0. Node 3 should stay unused and loop,
+    # node 4 is entirely optional via self-loop.
+    must_have = [[0, 1], [1, 0], [0, 2], [2, 0], [4, 4]]
+    arcs.each_with_index do |arc, idx|
+      if must_have.include?(arc)
+        model.add(literals[idx] == 1)
+      else
+        model.add(literals[idx] == 0)
+      end
+    end
+
+    solver = ORTools::CpSolver.new
+    status = solver.solve(model)
+    assert_equal :optimal, status
+    assert_equal true, solver.value(literals[arcs.index([3, 3])])
+  end
+
+  def test_circuit_constraint_with_optional_node
+    model = ORTools::CpModel.new
+    arcs = [
+      [0, 1], [1, 2], [2, 0],
+      [3, 3]
+    ]
+    literals = arcs.map { |tail, head| model.new_bool_var("arc_#{tail}_#{head}") }
+
+    circuit = model.add_circuit_constraint
+    arcs.each_with_index do |(tail, head), idx|
+      circuit.add_arc(tail, head, literals[idx])
+    end
+
+    required = [[0, 1], [1, 2], [2, 0]]
+    arcs.each_with_index do |arc, idx|
+      model.add(literals[idx] == 1) if required.include?(arc)
+    end
+
+    solver = ORTools::CpSolver.new
+    status = solver.solve(model)
+    assert_equal :optimal, status
+
+    loop_literal = literals[arcs.index([3, 3])]
+    assert_equal true, solver.value(loop_literal)
+  end
+
   def test_multiple_circuit_constraint
     model = ORTools::CpModel.new
     arcs = [
@@ -420,6 +479,37 @@ class ConstraintTest < Minitest::Test
     assert_equal true, solver.value(optional)
   end
 
+  def test_reservoir_constraint_with_active_vector
+    model = ORTools::CpModel.new
+
+    times = [
+      model.new_int_var(0, 0, "fill_0"),
+      model.new_int_var(1, 1, "drain_1"),
+      model.new_int_var(2, 2, "fill_2")
+    ]
+    level_changes = [2, -3, 2]
+    active = [
+      model.true_var,
+      model.new_bool_var("drain_active"),
+      model.true_var
+    ]
+
+    constraint = model.add_reservoir_constraint_with_active(
+      times,
+      level_changes,
+      active,
+      0,
+      3
+    )
+
+    unused_variable = constraint # silence unused warning
+
+    solver = ORTools::CpSolver.new
+    status = solver.solve(model)
+    assert_equal :optimal, status
+    assert_equal false, solver.value(active[1])
+  end
+
   def test_cumulative_constraint_with_optional_interval
     model = ORTools::CpModel.new
     capacity = model.new_constant(3)
@@ -446,6 +536,30 @@ class ConstraintTest < Minitest::Test
     assert_equal true, solver.value(presence)
   end
 
+  def test_cumulative_constraint_drops_optional_job
+    model = ORTools::CpModel.new
+    capacity = model.new_constant(3)
+    cumulative = model.add_cumulative(capacity)
+
+    start1 = model.new_int_var(0, 0, "base_start")
+    interval1 = model.new_fixed_size_interval_var(start1, 2, "base_task")
+    cumulative.add_demand(interval1, 2)
+
+    start2 = model.new_int_var(0, 0, "base_start_2")
+    interval2 = model.new_fixed_size_interval_var(start2, 2, "base_task_2")
+    cumulative.add_demand(interval2, 2)
+
+    optional_presence = model.new_bool_var("optional_presence")
+    optional_start = model.new_int_var(0, 0, "optional_start")
+    optional_interval = model.new_optional_fixed_size_interval_var(optional_start, 1, optional_presence, "optional_task")
+    cumulative.add_demand(optional_interval, 1)
+
+    solver = ORTools::CpSolver.new
+    status = solver.solve(model)
+    assert_equal :optimal, status
+    assert_equal false, solver.value(optional_presence)
+  end
+
   def test_no_overlap_2d_constraint
     model = ORTools::CpModel.new
 
@@ -469,6 +583,33 @@ class ConstraintTest < Minitest::Test
     status = solver.solve(model)
     assert_equal :optimal, status
     assert_equal 2, solver.value(x2_start)
+  end
+
+  def test_no_overlap_2d_optional_rectangles
+    model = ORTools::CpModel.new
+
+    base_x = model.new_int_var(0, 0, "base_x")
+    base_y = model.new_int_var(0, 0, "base_y")
+    base_rect_x = model.new_fixed_size_interval_var(base_x, 2, "base_rect_x")
+    base_rect_y = model.new_fixed_size_interval_var(base_y, 2, "base_rect_y")
+
+    optional_start_x = model.new_int_var(0, 4, "opt_x")
+    optional_start_y = model.new_int_var(0, 0, "opt_y")
+    opt_presence = model.new_bool_var("opt_present")
+    opt_rect_x = model.new_optional_fixed_size_interval_var(optional_start_x, 2, opt_presence, "opt_rect_x")
+    opt_rect_y = model.new_optional_fixed_size_interval_var(optional_start_y, 2, opt_presence, "opt_rect_y")
+
+    constraint = model.add_no_overlap_2d
+    constraint.add_rectangle(base_rect_x, base_rect_y)
+    constraint.add_rectangle(opt_rect_x, opt_rect_y)
+
+    model.maximize(opt_presence - optional_start_x)
+
+    solver = ORTools::CpSolver.new
+    status = solver.solve(model)
+    assert_equal :optimal, status
+    assert_equal true, solver.value(opt_presence)
+    assert_equal 2, solver.value(optional_start_x)
   end
 
   def test_min_max_and_multiplication_equalities
@@ -533,5 +674,25 @@ class ConstraintTest < Minitest::Test
       end
     end
     assert ok, "Found more than #{limit} consecutive 1s: #{values.inspect}"
+  end
+
+  def test_automaton_rejects_invalid_sequence
+    model = ORTools::CpModel.new
+
+    vars = 3.times.map { |i| model.new_int_var(0, 1, "transition_#{i}") }
+    transitions = [
+      [0, 0, 1],
+      [1, 0, 1],
+      [1, 1, 2]
+    ]
+
+    model.add_automaton(vars, 0, [2], transitions)
+
+    # Force an invalid sequence: first transition is 1, which has no outgoing edge from state 0.
+    model.add(vars[0] == 1)
+
+    solver = ORTools::CpSolver.new
+    status = solver.solve(model)
+    assert_equal :infeasible, status
   end
 end

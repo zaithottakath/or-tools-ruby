@@ -160,6 +160,16 @@ static std::vector<LinearExpr> array_to_linear_expr_vector(const Array& array) {
   return values;
 }
 
+static std::vector<BoolVar> array_to_bool_var_vector(const Array& array) {
+  std::vector<BoolVar> values;
+  values.reserve(array.size());
+  Rice::detail::From_Ruby<BoolVar> converter;
+  for (const Object& value : array) {
+    values.push_back(converter.convert(value.value()));
+  }
+  return values;
+}
+
 void init_constraint(Rice::Module& m) {
   Rice::define_class_under<Domain>(m, "Domain")
     .define_constructor(Rice::Constructor<Domain, int64_t, int64_t>())
@@ -639,6 +649,32 @@ void init_constraint(Rice::Module& m) {
       "add_reservoir_constraint",
       [](CpModelBuilder& self, int64_t min_level, int64_t max_level) {
         return self.AddReservoirConstraint(min_level, max_level);
+      })
+    .define_method(
+      "add_reservoir_constraint_with_active",
+      [](CpModelBuilder& self,
+         Object times_obj,
+         Object level_changes_obj,
+         Object actives_obj,
+         int64_t min_level,
+         int64_t max_level) {
+        if (!times_obj.is_a(rb_cArray) || !level_changes_obj.is_a(rb_cArray) || !actives_obj.is_a(rb_cArray)) {
+          throw std::runtime_error("times, level_changes, and actives must be Arrays");
+        }
+
+        Array times_array(times_obj);
+        Array level_changes_array(level_changes_obj);
+        Array actives_array(actives_obj);
+
+        if (times_array.size() != level_changes_array.size() ||
+            times_array.size() != actives_array.size()) {
+          throw std::runtime_error("times, level_changes, and actives must have the same length");
+        }
+
+        auto times = array_to_linear_expr_vector(times_array);
+        auto level_changes = array_to_int64_vector(level_changes_array);
+        auto actives = array_to_bool_var_vector(actives_array);
+        return self.AddReservoirConstraintWithActive(times, level_changes, actives, min_level, max_level);
       })
     .define_method(
       "add_cumulative",
