@@ -426,7 +426,7 @@ class ConstraintTest < Minitest::Test
     cumulative = model.add_cumulative(capacity)
 
     start1 = model.new_int_var(0, 0, "start1")
-    interval1 = model.new_fixed_size_interval_var(start1, 2, "task1")
+    interval1 = model.new_fixed_size_interval_var(start1, 1, "task1")
     cumulative.add_demand(interval1, 2)
 
     start2 = model.new_int_var(0, 1, "start2")
