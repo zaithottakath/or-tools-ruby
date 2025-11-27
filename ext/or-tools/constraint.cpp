@@ -45,6 +45,47 @@ using Rice::Symbol;
 Class rb_cBoolVar;
 Class rb_cSatIntVar;
 
+namespace Rice::detail {
+  template<>
+  struct Type<LinearExpr> {
+    static bool verify() { return true; }
+  };
+
+  template<>
+  class From_Ruby<LinearExpr> {
+  public:
+    From_Ruby() = default;
+
+    explicit From_Ruby(Arg* arg) : arg_(arg) { }
+
+    Convertible is_convertible(VALUE value) { return Convertible::Cast; }
+
+    LinearExpr convert(VALUE v) {
+      LinearExpr expr;
+
+      Rice::Object utils = Rice::define_module("ORTools").const_get("Utils");
+      Rice::Hash coeffs = utils.call("index_expression", Object(v));
+
+      for (const auto& entry : coeffs) {
+        Object var = entry.key;
+        auto coeff = From_Ruby<int64_t>().convert(entry.value.value());
+
+        if (var.is_nil()) {
+          expr += coeff;
+        } else if (var.is_a(rb_cBoolVar)) {
+          expr += From_Ruby<BoolVar>().convert(var.value()) * coeff;
+        } else {
+          expr += From_Ruby<IntVar>().convert(var.value()) * coeff;
+        }
+      }
+
+      return expr;
+    }
+
+  private:
+    Arg* arg_ = nullptr;
+  };
+} // namespace Rice::detail
 
 // Thread-safe queue that lets OR-Tools worker threads enqueue responses while a Ruby-owned
 // thread drains the queue and invokes the Ruby callback after reacquiring the GVL.
@@ -118,48 +159,6 @@ static std::vector<LinearExpr> array_to_linear_expr_vector(const Array& array) {
   }
   return values;
 }
-
-namespace Rice::detail {
-  template<>
-  struct Type<LinearExpr> {
-    static bool verify() { return true; }
-  };
-
-  template<>
-  class From_Ruby<LinearExpr> {
-  public:
-    From_Ruby() = default;
-
-    explicit From_Ruby(Arg* arg) : arg_(arg) { }
-
-    Convertible is_convertible(VALUE value) { return Convertible::Cast; }
-
-    LinearExpr convert(VALUE v) {
-      LinearExpr expr;
-
-      Rice::Object utils = Rice::define_module("ORTools").const_get("Utils");
-      Rice::Hash coeffs = utils.call("index_expression", Object(v));
-
-      for (const auto& entry : coeffs) {
-        Object var = entry.key;
-        auto coeff = From_Ruby<int64_t>().convert(entry.value.value());
-
-        if (var.is_nil()) {
-          expr += coeff;
-        } else if (var.is_a(rb_cBoolVar)) {
-          expr += From_Ruby<BoolVar>().convert(var.value()) * coeff;
-        } else {
-          expr += From_Ruby<IntVar>().convert(var.value()) * coeff;
-        }
-      }
-
-      return expr;
-    }
-
-  private:
-    Arg* arg_ = nullptr;
-  };
-} // namespace Rice::detail
 
 void init_constraint(Rice::Module& m) {
   Rice::define_class_under<Domain>(m, "Domain")
