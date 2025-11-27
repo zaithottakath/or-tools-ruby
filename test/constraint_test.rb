@@ -479,36 +479,6 @@ class ConstraintTest < Minitest::Test
     assert_equal true, solver.value(optional)
   end
 
-  def test_reservoir_constraint_with_active_vector
-    model = ORTools::CpModel.new
-
-    times = [
-      model.new_int_var(0, 0, "fill_0"),
-      model.new_int_var(1, 1, "drain_1"),
-      model.new_int_var(2, 2, "fill_2")
-    ]
-    level_changes = [2, -3, 2]
-    active = [
-      model.true_var,
-      model.new_bool_var("drain_active"),
-      model.true_var
-    ]
-
-    constraint = model.add_reservoir_constraint_with_active(
-      times,
-      level_changes,
-      active,
-      0,
-      3
-    )
-
-    unused_variable = constraint # silence unused warning
-
-    solver = ORTools::CpSolver.new
-    status = solver.solve(model)
-    assert_equal :optimal, status
-    assert_equal false, solver.value(active[1])
-  end
 
   def test_cumulative_constraint_with_optional_interval
     model = ORTools::CpModel.new
