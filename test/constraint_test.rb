@@ -303,9 +303,9 @@ class ConstraintTest < Minitest::Test
     status = solver.solve(model)
     assert_equal :optimal, status
 
-    a_val = solver.value(a)
-    b_val = solver.value(b)
-    c_val = solver.value(c)
+    a_val = solver.value(a) ? 1 : 0
+    b_val = solver.value(b) ? 1 : 0
+    c_val = solver.value(c) ? 1 : 0
 
     assert_equal 1, a_val + b_val
     assert_equal 1, b_val + c_val
@@ -365,17 +365,15 @@ class ConstraintTest < Minitest::Test
     assert_equal :optimal, status
     required.each do |arc|
       lit = literals[arcs.index(arc)]
-      assert_equal 1, solver.value(lit)
+      assert_equal true, solver.value(lit)
     end
   end
 
   def test_multiple_circuit_constraint
     model = ORTools::CpModel.new
     arcs = [
-      [0, 1], [1, 0],
-      [2, 3], [3, 2],
-      [0, 2], [2, 0],
-      [1, 3], [3, 1]
+      [0, 1], [1, 2], [2, 0],
+      [0, 2], [2, 1], [1, 0]
     ]
     literals = arcs.map { |tail, head| model.new_bool_var("route_#{tail}_#{head}") }
 
@@ -384,7 +382,7 @@ class ConstraintTest < Minitest::Test
       routes.add_arc(tail, head, literals[idx])
     end
 
-    required = [[0, 1], [1, 0], [2, 3], [3, 2]]
+    required = [[0, 1], [1, 2], [2, 0]]
     arcs.each_with_index do |arc, idx|
       if required.include?(arc)
         model.add(literals[idx] == 1)
@@ -398,7 +396,7 @@ class ConstraintTest < Minitest::Test
     assert_equal :optimal, status
     required.each do |arc|
       lit = literals[arcs.index(arc)]
-      assert_equal 1, solver.value(lit)
+      assert_equal true, solver.value(lit)
     end
   end
 
@@ -418,7 +416,7 @@ class ConstraintTest < Minitest::Test
     solver = ORTools::CpSolver.new
     status = solver.solve(model)
     assert_equal :optimal, status
-    assert_equal 0, solver.value(optional)
+    assert_equal false, solver.value(optional)
   end
 
   def test_cumulative_constraint_with_optional_interval
@@ -444,7 +442,7 @@ class ConstraintTest < Minitest::Test
     solver = ORTools::CpSolver.new
     status = solver.solve(model)
     assert_equal :optimal, status
-    assert_equal 1, solver.value(presence)
+    assert_equal true, solver.value(presence)
   end
 
   def test_no_overlap_2d_constraint
