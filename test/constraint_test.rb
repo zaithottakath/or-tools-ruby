@@ -402,46 +402,47 @@ class ConstraintTest < Minitest::Test
 
   def test_reservoir_constraint_with_optional_event
     model = ORTools::CpModel.new
-    reservoir = model.add_reservoir_constraint(0, 2)
+    reservoir = model.add_reservoir_constraint(0, 3)
 
-    fill_time = model.new_int_var(0, 0, "fill_time")
-    drain_time = model.new_int_var(2, 2, "drain_time")
-    reservoir.add_event(fill_time, 1)
-    reservoir.add_event(drain_time, -1)
+    first_fill_time = model.new_int_var(0, 0, "first_fill")
+    reservoir.add_event(first_fill_time, 2)
 
-    optional = model.new_bool_var("optional_event")
-    model.add(optional == 0)
-    reservoir.add_optional_event(drain_time, 1, optional)
+    drain_time = model.new_int_var(1, 1, "drain_time")
+    optional = model.new_bool_var("drain_required")
+    reservoir.add_optional_event(drain_time, -1, optional)
+
+    second_fill_time = model.new_int_var(2, 2, "second_fill")
+    reservoir.add_event(second_fill_time, 2)
 
     solver = ORTools::CpSolver.new
     status = solver.solve(model)
     assert_equal :optimal, status
-    assert_equal false, solver.value(optional)
+    assert_equal true, solver.value(optional)
   end
 
   def test_cumulative_constraint_with_optional_interval
     model = ORTools::CpModel.new
-    capacity = model.new_constant(2)
+    capacity = model.new_constant(3)
     cumulative = model.add_cumulative(capacity)
 
     start1 = model.new_int_var(0, 0, "start1")
     interval1 = model.new_fixed_size_interval_var(start1, 2, "task1")
+    cumulative.add_demand(interval1, 2)
 
-    start2 = model.new_int_var(1, 1, "start2")
+    start2 = model.new_int_var(0, 1, "start2")
     interval2 = model.new_fixed_size_interval_var(start2, 2, "task2")
+    cumulative.add_demand(interval2, 2)
 
     presence = model.new_bool_var("task3_presence")
     model.add(presence == 1)
-    start3 = model.new_int_var(2, 2, "start3")
+    start3 = model.new_int_var(1, 1, "start3")
     interval3 = model.new_optional_fixed_size_interval_var(start3, 1, presence, "task3")
-
-    cumulative.add_demand(interval1, 1)
-    cumulative.add_demand(interval2, 1)
     cumulative.add_demand(interval3, 1)
 
     solver = ORTools::CpSolver.new
     status = solver.solve(model)
     assert_equal :optimal, status
+    assert_equal 1, solver.value(start2)
     assert_equal true, solver.value(presence)
   end
 
@@ -453,7 +454,7 @@ class ConstraintTest < Minitest::Test
     rect1_x = model.new_fixed_size_interval_var(x1_start, 2, "rect1_x")
     rect1_y = model.new_fixed_size_interval_var(y1_start, 2, "rect1_y")
 
-    x2_start = model.new_int_var(3, 3, "x2_start")
+    x2_start = model.new_int_var(0, 2, "x2_start")
     y2_start = model.new_int_var(0, 0, "y2_start")
     rect2_x = model.new_fixed_size_interval_var(x2_start, 2, "rect2_x")
     rect2_y = model.new_fixed_size_interval_var(y2_start, 2, "rect2_y")
@@ -462,9 +463,12 @@ class ConstraintTest < Minitest::Test
     constraint.add_rectangle(rect1_x, rect1_y)
     constraint.add_rectangle(rect2_x, rect2_y)
 
+    model.minimize(x2_start)
+
     solver = ORTools::CpSolver.new
     status = solver.solve(model)
     assert_equal :optimal, status
+    assert_equal 2, solver.value(x2_start)
   end
 
   def test_min_max_and_multiplication_equalities
