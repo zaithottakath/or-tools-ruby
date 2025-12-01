@@ -376,6 +376,7 @@ class ConstraintTest < Minitest::Test
       [0, 2], [2, 0],
       [0, 3], [3, 0],
       [1, 2], [2, 1], [1, 3], [3, 1], [2, 3], [3, 2],
+      [3, 3],
       [4, 4]
     ]
     literals = arcs.map { |tail, head| model.new_bool_var("route_#{tail}_#{head}") }
@@ -387,7 +388,7 @@ class ConstraintTest < Minitest::Test
 
     # Force two short depot tours: 0->1->0 and 0->2->0. Node 3 should stay unused and loop,
     # node 4 is entirely optional via self-loop.
-    must_have = [[0, 1], [1, 0], [0, 2], [2, 0], [4, 4]]
+    must_have = [[0, 1], [1, 0], [0, 2], [2, 0], [3, 3], [4, 4]]
     arcs.each_with_index do |arc, idx|
       if must_have.include?(arc)
         model.add(literals[idx] == 1)
@@ -515,14 +516,14 @@ class ConstraintTest < Minitest::Test
     interval1 = model.new_fixed_size_interval_var(start1, 2, "base_task")
     cumulative.add_demand(interval1, 2)
 
-    start2 = model.new_int_var(0, 0, "base_start_2")
+    start2 = model.new_int_var(2, 2, "base_start_2")
     interval2 = model.new_fixed_size_interval_var(start2, 2, "base_task_2")
     cumulative.add_demand(interval2, 2)
 
     optional_presence = model.new_bool_var("optional_presence")
     optional_start = model.new_int_var(0, 0, "optional_start")
     optional_interval = model.new_optional_fixed_size_interval_var(optional_start, 1, optional_presence, "optional_task")
-    cumulative.add_demand(optional_interval, 1)
+    cumulative.add_demand(optional_interval, 2)
 
     solver = ORTools::CpSolver.new
     status = solver.solve(model)
@@ -573,7 +574,7 @@ class ConstraintTest < Minitest::Test
     constraint.add_rectangle(base_rect_x, base_rect_y)
     constraint.add_rectangle(opt_rect_x, opt_rect_y)
 
-    model.maximize(opt_presence - optional_start_x)
+    model.maximize(opt_presence * 10 - optional_start_x)
 
     solver = ORTools::CpSolver.new
     status = solver.solve(model)
